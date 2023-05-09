@@ -56,6 +56,8 @@ set( GLEW_DIR "${VENDOR_DIR}/glew" )
 set( GLM_DIR "${VENDOR_DIR}/glm" )
 set( CNPY_DIR "${VENDOR_DIR}/cnpy" )
 set( ZLIB_DIR "${VENDOR_DIR}/zlib" )
+set( STB_DIR "${VENDOR_DIR}/stb" )
+
 
 set( PROJ_LIB_NAME "volrend" )
 
@@ -193,7 +195,9 @@ include_directories(
     ${GLEW_DIR}/include
     ${GLM_DIR}
     ${VENDOR_DIR}/misc
+    ${STB_DIR}
     )
+link_directories(${STB_DIR}) 
 if (_VOLREND_USE_CUDA)
     include_directories ( ${CMAKE_CUDA_TOOLKIT_INCLUDE_DIRECTORIES})
 endif()

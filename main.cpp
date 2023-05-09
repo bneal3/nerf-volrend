@@ -1,3 +1,10 @@
+#include <iostream>
+#include <string>
+#include <fstream>
+#include <sstream>
+#include <cstdio>
+#include <vector>
+
 #include <GL/glew.h>
 #include <GLFW/glfw3.h>
 #include <glm/gtc/type_ptr.hpp>
@@ -26,6 +33,9 @@
 #ifdef VOLREND_CUDA
 #include "volrend/cuda/common.cuh"
 #endif
+
+#define STB_IMAGE_WRITE_IMPLEMENTATION
+#include <stb_image_write.h>
 
 namespace volrend {
 
@@ -671,6 +681,90 @@ void glfw_window_size_callback(GLFWwindow* window, int width, int height) {
 }  // namespace
 }  // namespace volrend
 
+// Collision Detection Code
+struct BoundingBox {
+    double x;
+    double y;
+    double width;
+    double height;
+};
+
+static std::vector<BoundingBox> bounding_boxes;
+static std::vector<BoundingBox>::iterator cur_box = bounding_boxes.end();
+
+static bool CALLED = false;
+static std::string input_file_name = "./Release/nerf_bounding_boxes.in";
+static std::string image_file_name = "./Release/nerf.png";
+
+void pollBoundingBoxScript() {
+    std::ifstream input_file(input_file_name);
+    // FLOW: Check if file exists
+    if (input_file.is_open()) {
+        std::string line;
+        while (std::getline(input_file, line)) {
+            // FLOW: Set loop variables
+            int counter = 0;
+            BoundingBox box;
+            std::stringstream ss(line);
+            std::string value;
+            while (ss >> value) { // FLOW: Extract word from the stream
+                double val = stof(value);
+                if (counter == 0) {
+                    std::cout << std::endl;
+                    box.x = val;
+                }
+                else if (counter == 1) {
+                    box.y = val;
+                }
+                else if (counter == 2) {
+                    box.width = val;
+                }
+                else if (counter == 3) {
+                    box.height = val;
+                }
+                std::cout << val << std::endl;
+                counter++;
+            }
+            // FLOW: Add bounding box to vector of bounding boxes
+            bounding_boxes.push_back(box);
+        }
+        input_file.close();
+        cur_box = bounding_boxes.begin();
+        // FLOW: Delete bounding box file and image file
+        remove(input_file_name.c_str());
+        remove(image_file_name.c_str());
+        CALLED = false;
+    }
+    else if (CALLED == false) {
+        // FLOW: Check if image file exists
+        std::filesystem::path f{ image_file_name };
+        if (std::filesystem::exists(f)) {
+            // FLOW: Call bounding box script
+            std::string commandline_call = "start /b python ../scripts/detect_octree.py -model ../models/yolov8/yolov8n-seg.pt -image ";
+            commandline_call.append(image_file_name);
+            commandline_call.append(" -output ");
+            commandline_call.append(input_file_name);
+            system(commandline_call.c_str());
+            CALLED = true;
+        }
+    }
+}
+
+void saveImage(const char* filepath, GLFWwindow* w) {
+    int width, height;
+    glfwGetFramebufferSize(w, &width, &height);
+    GLsizei nrChannels = 3;
+    GLsizei stride = nrChannels * width;
+    stride += (stride % 4) ? (4 - stride % 4) : 0;
+    GLsizei bufferSize = stride * height;
+    std::vector<char> buffer(bufferSize);
+    glPixelStorei(GL_PACK_ALIGNMENT, 4);
+    glReadBuffer(GL_FRONT);
+    glReadPixels(0, 0, width, height, GL_RGB, GL_UNSIGNED_BYTE, buffer.data());
+    stbi_flip_vertically_on_write(true);
+    stbi_write_png(filepath, width, height, nrChannels, buffer.data(), stride);
+}
+
 int main(int argc, char* argv[]) {
     using namespace volrend;
 
@@ -774,15 +868,28 @@ int main(int argc, char* argv[]) {
         glfwSetScrollCallback(window, glfw_scroll_callback);
         glfwSetFramebufferSizeCallback(window, glfw_window_size_callback);
 
+        // TODO: Compute bounding box framerate
+
         while (!glfwWindowShouldClose(window)) {
             glEnable(GL_DEPTH_TEST);
             glEnable(GL_PROGRAM_POINT_SIZE);
             glPointSize(4.f);
             glfw_update_title(window);
 
+            // FLOW: Add model inference code here
+            pollBoundingBoxScript();
+
+            // TODO: Draw bounding boxes
+            // TODO: Check mouse collision
             rend.render();
 
-            if (!nogui) draw_imgui(rend, tree);
+            // FLOW: Save image to file if one does not exist already
+            std::filesystem::path f{ image_file_name };
+            if (!std::filesystem::exists(f)) {
+                saveImage(image_file_name.c_str(), window);
+            }
+
+            // if (!nogui) draw_imgui(rend, tree);
 
             glfwSwapBuffers(window);
             glFinish();
