@@ -1,9 +1,8 @@
 import argparse
 import os
-from PIL import Image
 
+from PIL import Image
 from ultralytics import YOLO
-import cv2
 
 # FLOW: Argument parsing setup
 parser = argparse.ArgumentParser(description='Produce bounding box coordinates in image')

@@ -38,19 +38,23 @@
 #define STB_IMAGE_WRITE_IMPLEMENTATION
 #include <stb_image_write.h>
 
+// FLOW: Collision detection global variables
+// VARIABLE: Collision detection frame rate measurement
+static double col_frame_start = 0.0;
+
 struct BoundingBox {
     double x;
     double y;
     double width;
     double height;
 };
-
 static std::vector<BoundingBox> bounding_boxes;
 
 static bool CALLED = false;
 static std::string input_file_name = "./Release/nerf_bounding_boxes.in";
 static std::string image_file_name = "./Release/nerf.png";
 
+// FLOW: Start of volrend OpenGL code
 namespace volrend {
 
 namespace {
@@ -705,25 +709,21 @@ void glfw_window_size_callback(GLFWwindow* window, int width, int height) {
 }  // namespace
 }  // namespace volrend
 
-// FLOW: Collision Detection Code
-void drawBoundingBoxes(int width, int height, GLfloat vertices_position[], int vertex_array_size);
+// FLOW: Collision detection functions
 
-// Initialize the data to be rendered
+// FUNCTION: Initialize shaders
 void initializeShaders();
 
-// Read a shader source from a file
-// store the shader source in a std::vector<char>
-void read_shader_src(const char* fname, std::vector<char>& buffer);
+// FUNCTION: Read a shader source from a file
+void readShaderFile(const char* fname, std::vector<char>& buffer);
 
-// Compile a shader
-GLuint load_and_compile_shader(const char* fname, GLenum shaderType);
+// FUNCTION: Load and compile shader
+GLuint loadShader(const char* fname, GLenum shaderType);
 
-// Create a program from two shaders
-GLuint create_program(const char* path_vert_shader, const char* path_frag_shader);
+// FUNCTION: Create program from shaders
+GLuint createProgram(const char* path_vert_shader, const char* path_frag_shader);
 
-// VARIABLE: Collision detection frame rate measurement
-static double col_frame_start = 0.0;
-
+// FUNCTION: Check if bounding box input file has been created and load in values
 void pollBoundingBoxScript() {
     std::ifstream input_file(input_file_name);
     // FLOW: Check if file exists
@@ -780,6 +780,7 @@ void pollBoundingBoxScript() {
     }
 }
 
+// FUNCTION: Save image using stbi
 void saveImage(const char* filepath, GLFWwindow* w) {
     int width, height;
     glfwGetFramebufferSize(w, &width, &height);
@@ -898,16 +899,16 @@ int main(int argc, char* argv[]) {
         glfwSetScrollCallback(window, glfw_scroll_callback);
         glfwSetFramebufferSizeCallback(window, glfw_window_size_callback);
 
-        // Create a vertex array object
+        // FLOW: Create and bind VAO
         GLuint vao;
-        // Use a Vertex Array Object
         glGenVertexArrays(1, &vao);
         glBindVertexArray(vao);
 
-        // Create a Vector Buffer Object that will store the vertices on video memory
+        // FLOW: Create VBO
         GLuint vbo;
         glGenBuffers(1, &vbo);
 
+        // FLOW: Initialize vertex positions
         GLfloat vertices_position[48] = {
            0.0, 0.0,
            0.0, 0.25,
@@ -944,7 +945,7 @@ int main(int argc, char* argv[]) {
         glBindBuffer(GL_ARRAY_BUFFER, vbo);
         glBufferData(GL_ARRAY_BUFFER, sizeof(vertices_position), vertices_position, GL_STATIC_DRAW);
         
-        // Initialize the data to be rendered
+        // FLOW: Init shaders
         initializeShaders();
 
         while (!glfwWindowShouldClose(window)) {
@@ -957,6 +958,7 @@ int main(int argc, char* argv[]) {
             // FLOW: Model inference
             pollBoundingBoxScript();
 
+            // FLOW: Volume renderer of NeRF
             rend.render();
 
             // FLOW: Save image to file if one does not exist already
@@ -1032,8 +1034,6 @@ int main(int argc, char* argv[]) {
                 glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
             }
             
-            // TODO: Check mouse collision
-
             // if (!nogui) draw_imgui(rend, tree);
 
             glfwSwapBuffers(window);
@@ -1042,6 +1042,7 @@ int main(int argc, char* argv[]) {
         }
     }
 
+    // FLOW: Remove files on close
     remove(input_file_name.c_str());
     remove(image_file_name.c_str());
 
@@ -1052,42 +1053,36 @@ int main(int argc, char* argv[]) {
     glfwTerminate();
 }
 
-void drawBoundingBoxes(int width, int height, GLfloat vertices_position[], int vertex_array_size) {
-    
-}
-
 void initializeShaders() {
-    GLuint shaderProgram = create_program("../src/shaders/default.vert.glsl", "../src/shaders/default.frag.glsl");
+    GLuint shaderProgram = createProgram("../src/shaders/default.vert.glsl", "../src/shaders/default.frag.glsl");
 
-    // Get the location of the attributes that enters in the vertex shader
+    // FLOW: Get the location of the attributes that enters in the vertex shader
     GLint position_attribute = glGetAttribLocation(shaderProgram, "position");
 
-    // Specify how the data for position can be accessed
+    // FLOW: Specify how the data for position can be accessed
     glVertexAttribPointer(position_attribute, 2, GL_FLOAT, GL_FALSE, 0, 0);
 
-    // Enable the attribute
+    // FLOW: Enable the attribute
     glEnableVertexAttribArray(position_attribute);
 }
 
-// Read a shader source from a file
-// store the shader source in a std::vector<char>
-void read_shader_src(const char* fname, std::vector<char>& buffer) {
+void readShaderFile(const char* fname, std::vector<char>& buffer) {
     std::ifstream in;
     in.open(fname, std::ios::binary);
 
     if (in.is_open()) {
-        // Get the number of bytes stored in this file
+        // FLOW: Get the number of bytes stored in this file
         in.seekg(0, std::ios::end);
         size_t length = (size_t)in.tellg();
 
-        // Go to start of the file
+        // FLOW: Go to start of the file
         in.seekg(0, std::ios::beg);
 
-        // Read the content of the file in a buffer
+        // FLOW: Read the content of the file in a buffer
         buffer.resize(length + 1);
         in.read(&buffer[0], length);
         in.close();
-        // Add a valid C - string end
+        // FLOW: Add a valid C - string end
         buffer[length] = '\0';
     }
     else {
@@ -1096,18 +1091,17 @@ void read_shader_src(const char* fname, std::vector<char>& buffer) {
     }
 }
 
-// Compile a shader
-GLuint load_and_compile_shader(const char* fname, GLenum shaderType) {
-    // Load a shader from an external file
+GLuint loadShader(const char* fname, GLenum shaderType) {
+    // FLOW: Load a shader from an external file
     std::vector<char> buffer;
-    read_shader_src(fname, buffer);
+    readShaderFile(fname, buffer);
     const char* src = &buffer[0];
 
-    // Compile the shader
+    // FLOW: Compile the shader
     GLuint shader = glCreateShader(shaderType);
     glShaderSource(shader, 1, &src, NULL);
     glCompileShader(shader);
-    // Check the result of the compilation
+    // FLOW: Check the result of the compilation
     GLint test;
     glGetShaderiv(shader, GL_COMPILE_STATUS, &test);
     if (!test) {
@@ -1121,22 +1115,21 @@ GLuint load_and_compile_shader(const char* fname, GLenum shaderType) {
     return shader;
 }
 
-// Create a program from two shaders
-GLuint create_program(const char* path_vert_shader, const char* path_frag_shader) {
-    // Load and compile the vertex and fragment shaders
-    GLuint vertexShader = load_and_compile_shader(path_vert_shader, GL_VERTEX_SHADER);
-    GLuint fragmentShader = load_and_compile_shader(path_frag_shader, GL_FRAGMENT_SHADER);
+GLuint createProgram(const char* path_vert_shader, const char* path_frag_shader) {
+    // FLOW: Load and compile the vertex and fragment shaders
+    GLuint vertexShader = loadShader(path_vert_shader, GL_VERTEX_SHADER);
+    GLuint fragmentShader = loadShader(path_frag_shader, GL_FRAGMENT_SHADER);
 
-    // Attach the above shader to a program
+    // FLOW: Attach the above shader to a program
     GLuint shaderProgram = glCreateProgram();
     glAttachShader(shaderProgram, vertexShader);
     glAttachShader(shaderProgram, fragmentShader);
 
-    // Flag the shaders for deletion
+    // FLOW: Flag the shaders for deletion
     glDeleteShader(vertexShader);
     glDeleteShader(fragmentShader);
 
-    // Link and use the program
+    // FLOW: Link and use the program
     glLinkProgram(shaderProgram);
     glUseProgram(shaderProgram);
 
