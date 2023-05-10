@@ -3,6 +3,7 @@
 #include <fstream>
 #include <sstream>
 #include <cstdio>
+#include <cstdlib>
 #include <vector>
 
 #include <GL/glew.h>
@@ -37,6 +38,19 @@
 #define STB_IMAGE_WRITE_IMPLEMENTATION
 #include <stb_image_write.h>
 
+struct BoundingBox {
+    double x;
+    double y;
+    double width;
+    double height;
+};
+
+static std::vector<BoundingBox> bounding_boxes;
+
+static bool CALLED = false;
+static std::string input_file_name = "./Release/nerf_bounding_boxes.in";
+static std::string image_file_name = "./Release/nerf.png";
+
 namespace volrend {
 
 namespace {
@@ -44,12 +58,14 @@ namespace {
 #define GET_RENDERER(window) \
     (*((VolumeRenderer*)glfwGetWindowUserPointer(window)))
 
+// FPS Counter
 void glfw_update_title(GLFWwindow* window) {
     // static fps counters
     // Source: http://antongerdelan.net/opengl/glcontext2.html
+
+    // FLOW: Plenoctree Viewer FPS
     static double stamp_prev = 0.0;
     static int frame_count = 0;
-
     const double stamp_curr = glfwGetTime();
     const double elapsed = stamp_curr - stamp_prev;
 
@@ -59,7 +75,7 @@ void glfw_update_title(GLFWwindow* window) {
         const double fps = (double)frame_count / elapsed;
 
         char tmp[128];
-        sprintf(tmp, "plenoctree viewer - FPS: %.2f", fps);
+        sprintf(tmp, "Plenoctree Viewer FPS: %.2f", fps);
         glfwSetWindowTitle(window, tmp);
         frame_count = 0;
     }
@@ -591,6 +607,15 @@ void glfw_mouse_button_callback(GLFWwindow* window, int button, int action,
     auto& cam = rend.camera;
     double x, y;
     glfwGetCursorPos(window, &x, &y);
+
+    // FLOW: NeRF Collision Detection
+    for (std::vector<BoundingBox>::iterator cur_box = bounding_boxes.begin(); cur_box != bounding_boxes.end(); ++cur_box) {
+        if (x >= cur_box->x - (cur_box->width / 2) && x <= cur_box->x + (cur_box->width / 2)
+            && y >= cur_box->y - (cur_box->height / 2) && y <= cur_box->y + (cur_box->height / 2)) {
+            std::cout << "COLLISION" << std::endl;
+        }
+    }
+    
     if (action == GLFW_PRESS) {
         const bool SHIFT = mods & GLFW_MOD_SHIFT;
         cam.begin_drag(x, y, SHIFT || button == GLFW_MOUSE_BUTTON_MIDDLE,
@@ -631,8 +656,7 @@ GLFWwindow* glfw_init(const int width, const int height) {
     glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE);
     glfwWindowHint(GLFW_OPENGL_FORWARD_COMPAT, GL_TRUE);
 
-    GLFWwindow* window =
-        glfwCreateWindow(width, height, "volrend viewer", NULL, NULL);
+    GLFWwindow* window = glfwCreateWindow(width, height, "volrend viewer", NULL, NULL);
 
     glClearDepth(1.0);
     glDepthFunc(GL_LESS);
@@ -681,25 +705,30 @@ void glfw_window_size_callback(GLFWwindow* window, int width, int height) {
 }  // namespace
 }  // namespace volrend
 
-// Collision Detection Code
-struct BoundingBox {
-    double x;
-    double y;
-    double width;
-    double height;
-};
+// FLOW: Collision Detection Code
+void drawBoundingBoxes(int width, int height, GLfloat vertices_position[], int vertex_array_size);
 
-static std::vector<BoundingBox> bounding_boxes;
-static std::vector<BoundingBox>::iterator cur_box = bounding_boxes.end();
+// Initialize the data to be rendered
+void initializeShaders();
 
-static bool CALLED = false;
-static std::string input_file_name = "./Release/nerf_bounding_boxes.in";
-static std::string image_file_name = "./Release/nerf.png";
+// Read a shader source from a file
+// store the shader source in a std::vector<char>
+void read_shader_src(const char* fname, std::vector<char>& buffer);
+
+// Compile a shader
+GLuint load_and_compile_shader(const char* fname, GLenum shaderType);
+
+// Create a program from two shaders
+GLuint create_program(const char* path_vert_shader, const char* path_frag_shader);
+
+// VARIABLE: Collision detection frame rate measurement
+static double col_frame_start = 0.0;
 
 void pollBoundingBoxScript() {
     std::ifstream input_file(input_file_name);
     // FLOW: Check if file exists
     if (input_file.is_open()) {
+        bounding_boxes.clear();
         std::string line;
         while (std::getline(input_file, line)) {
             // FLOW: Set loop variables
@@ -710,7 +739,6 @@ void pollBoundingBoxScript() {
             while (ss >> value) { // FLOW: Extract word from the stream
                 double val = stof(value);
                 if (counter == 0) {
-                    std::cout << std::endl;
                     box.x = val;
                 }
                 else if (counter == 1) {
@@ -722,17 +750,19 @@ void pollBoundingBoxScript() {
                 else if (counter == 3) {
                     box.height = val;
                 }
-                std::cout << val << std::endl;
                 counter++;
             }
             // FLOW: Add bounding box to vector of bounding boxes
             bounding_boxes.push_back(box);
         }
         input_file.close();
-        cur_box = bounding_boxes.begin();
+        // FLOW: Frame end
+        double fps = 1 / (glfwGetTime() - col_frame_start);
+        std::cout << "COL FPS: " << fps << std::endl;
         // FLOW: Delete bounding box file and image file
         remove(input_file_name.c_str());
         remove(image_file_name.c_str());
+        // FLOW: Reset CALLED
         CALLED = false;
     }
     else if (CALLED == false) {
@@ -868,26 +898,141 @@ int main(int argc, char* argv[]) {
         glfwSetScrollCallback(window, glfw_scroll_callback);
         glfwSetFramebufferSizeCallback(window, glfw_window_size_callback);
 
-        // TODO: Compute bounding box framerate
+        // Create a vertex array object
+        GLuint vao;
+        // Use a Vertex Array Object
+        glGenVertexArrays(1, &vao);
+        glBindVertexArray(vao);
+
+        // Create a Vector Buffer Object that will store the vertices on video memory
+        GLuint vbo;
+        glGenBuffers(1, &vbo);
+
+        GLfloat vertices_position[48] = {
+           0.0, 0.0,
+           0.0, 0.25,
+           0.0, 0.5,
+
+           0.0, 0.0,
+           0.25, 0.0,
+           0.5, 0.0,
+
+           0.5, 0.0,
+           0.5, 0.25,
+           0.5, 0.5,
+
+           0.0, 0.5,
+           0.25, 0.5,
+           0.5, 0.5,
+
+           0.0, 0.0,
+           0.0, 0.25,
+           0.0, 0.5,
+
+           0.0, 0.0,
+           0.25, 0.0,
+           0.5, 0.0,
+
+           0.5, 0.0,
+           0.5, 0.25,
+           0.5, 0.5,
+
+           0.0, 0.5,
+           0.25, 0.5,
+           0.5, 0.5
+        };
+        glBindBuffer(GL_ARRAY_BUFFER, vbo);
+        glBufferData(GL_ARRAY_BUFFER, sizeof(vertices_position), vertices_position, GL_STATIC_DRAW);
+        
+        // Initialize the data to be rendered
+        initializeShaders();
 
         while (!glfwWindowShouldClose(window)) {
-            glEnable(GL_DEPTH_TEST);
+            // glEnable(GL_DEPTH_TEST);
             glEnable(GL_PROGRAM_POINT_SIZE);
             glPointSize(4.f);
             glfw_update_title(window);
+            glClear(GL_COLOR_BUFFER_BIT);
 
-            // FLOW: Add model inference code here
+            // FLOW: Model inference
             pollBoundingBoxScript();
 
-            // TODO: Draw bounding boxes
-            // TODO: Check mouse collision
             rend.render();
 
             // FLOW: Save image to file if one does not exist already
             std::filesystem::path f{ image_file_name };
             if (!std::filesystem::exists(f)) {
+                // FLOW: Frame start
+                col_frame_start = glfwGetTime();
                 saveImage(image_file_name.c_str(), window);
             }
+
+            // FLOW: Draw bounding boxes 
+            if (bounding_boxes.size() > 0) {
+                glPolygonMode(GL_FRONT_AND_BACK, GL_LINE);
+                glBindVertexArray(vao);
+                glBindBuffer(GL_ARRAY_BUFFER, vbo);
+                int counter = 0;
+                // FLOW: Reset vertices_position array
+                for (int i = 0; i < 48; i++) {
+                    vertices_position[i] = -1.0;
+                }
+                for (std::vector<BoundingBox>::iterator cur_box = bounding_boxes.begin(); cur_box != bounding_boxes.end(); ++cur_box) {
+                    // FLOW: Run calculations on box coordinates
+                    double newX = ((2 * cur_box->x) / width) - 1;
+                    double newY = -(((2 * cur_box->y) / height) - 1);
+                    double newWidth = (2 * cur_box->width) / width;
+                    double newHeight = (2 * cur_box->height) / height;
+
+                    newX -= newWidth / 2;
+                    newY += newHeight / 2;
+
+                    // FLOW: Set vertex positions
+                    vertices_position[0 + (counter * 24)] = newX;
+                    vertices_position[1 + (counter * 24)] = newY;
+
+                    vertices_position[2 + (counter * 24)] = newX + (newWidth / 2);
+                    vertices_position[3 + (counter * 24)] = newY;
+
+                    vertices_position[4 + (counter * 24)] = newX + newWidth;
+                    vertices_position[5 + (counter * 24)] = newY;
+
+                    vertices_position[6 + (counter * 24)] = newX;
+                    vertices_position[7 + (counter * 24)] = newY;
+
+                    vertices_position[8 + (counter * 24)] = newX;
+                    vertices_position[9 + (counter * 24)] = newY - (newHeight / 2);
+
+                    vertices_position[10 + (counter * 24)] = newX;
+                    vertices_position[11 + (counter * 24)] = newY - newHeight;
+
+                    vertices_position[12 + (counter * 24)] = newX + newWidth;
+                    vertices_position[13 + (counter * 24)] = newY - (newHeight / 2);
+
+                    vertices_position[14 + (counter * 24)] = newX + newWidth;
+                    vertices_position[15 + (counter * 24)] = newY;
+
+                    vertices_position[16 + (counter * 24)] = newX + newWidth;
+                    vertices_position[17 + (counter * 24)] = newY - newHeight;
+
+                    vertices_position[18 + (counter * 24)] = newX;
+                    vertices_position[19 + (counter * 24)] = newY - newHeight;
+
+                    vertices_position[20 + (counter * 24)] = newX + (newWidth / 2);
+                    vertices_position[21 + (counter * 24)] = newY - newHeight;
+
+                    vertices_position[22 + (counter * 24)] = newX + newWidth;
+                    vertices_position[23 + (counter * 24)] = newY - newHeight;
+
+                    glBufferData(GL_ARRAY_BUFFER, sizeof(vertices_position), vertices_position, GL_STATIC_DRAW);
+
+                    counter++;
+                }
+                glDrawArrays(GL_TRIANGLES, 0, 24);
+                glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
+            }
+            
+            // TODO: Check mouse collision
 
             // if (!nogui) draw_imgui(rend, tree);
 
@@ -897,9 +1042,103 @@ int main(int argc, char* argv[]) {
         }
     }
 
+    remove(input_file_name.c_str());
+    remove(image_file_name.c_str());
+
     ImGui_ImplOpenGL3_Shutdown();
     ImGui_ImplGlfw_Shutdown();
     ImGui::DestroyContext();
     glfwDestroyWindow(window);
     glfwTerminate();
+}
+
+void drawBoundingBoxes(int width, int height, GLfloat vertices_position[], int vertex_array_size) {
+    
+}
+
+void initializeShaders() {
+    GLuint shaderProgram = create_program("../src/shaders/default.vert.glsl", "../src/shaders/default.frag.glsl");
+
+    // Get the location of the attributes that enters in the vertex shader
+    GLint position_attribute = glGetAttribLocation(shaderProgram, "position");
+
+    // Specify how the data for position can be accessed
+    glVertexAttribPointer(position_attribute, 2, GL_FLOAT, GL_FALSE, 0, 0);
+
+    // Enable the attribute
+    glEnableVertexAttribArray(position_attribute);
+}
+
+// Read a shader source from a file
+// store the shader source in a std::vector<char>
+void read_shader_src(const char* fname, std::vector<char>& buffer) {
+    std::ifstream in;
+    in.open(fname, std::ios::binary);
+
+    if (in.is_open()) {
+        // Get the number of bytes stored in this file
+        in.seekg(0, std::ios::end);
+        size_t length = (size_t)in.tellg();
+
+        // Go to start of the file
+        in.seekg(0, std::ios::beg);
+
+        // Read the content of the file in a buffer
+        buffer.resize(length + 1);
+        in.read(&buffer[0], length);
+        in.close();
+        // Add a valid C - string end
+        buffer[length] = '\0';
+    }
+    else {
+        std::cerr << "Unable to open " << fname << " I'm out!" << std::endl;
+        exit(-1);
+    }
+}
+
+// Compile a shader
+GLuint load_and_compile_shader(const char* fname, GLenum shaderType) {
+    // Load a shader from an external file
+    std::vector<char> buffer;
+    read_shader_src(fname, buffer);
+    const char* src = &buffer[0];
+
+    // Compile the shader
+    GLuint shader = glCreateShader(shaderType);
+    glShaderSource(shader, 1, &src, NULL);
+    glCompileShader(shader);
+    // Check the result of the compilation
+    GLint test;
+    glGetShaderiv(shader, GL_COMPILE_STATUS, &test);
+    if (!test) {
+        std::cerr << "Shader compilation failed with this message:" << std::endl;
+        std::vector<char> compilation_log(512);
+        glGetShaderInfoLog(shader, compilation_log.size(), NULL, &compilation_log[0]);
+        std::cerr << &compilation_log[0] << std::endl;
+        glfwTerminate();
+        exit(-1);
+    }
+    return shader;
+}
+
+// Create a program from two shaders
+GLuint create_program(const char* path_vert_shader, const char* path_frag_shader) {
+    // Load and compile the vertex and fragment shaders
+    GLuint vertexShader = load_and_compile_shader(path_vert_shader, GL_VERTEX_SHADER);
+    GLuint fragmentShader = load_and_compile_shader(path_frag_shader, GL_FRAGMENT_SHADER);
+
+    // Attach the above shader to a program
+    GLuint shaderProgram = glCreateProgram();
+    glAttachShader(shaderProgram, vertexShader);
+    glAttachShader(shaderProgram, fragmentShader);
+
+    // Flag the shaders for deletion
+    glDeleteShader(vertexShader);
+    glDeleteShader(fragmentShader);
+
+    // Link and use the program
+    glLinkProgram(shaderProgram);
+    glUseProgram(shaderProgram);
+
+    return shaderProgram;
 }
