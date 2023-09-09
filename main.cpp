@@ -1054,7 +1054,7 @@ int main(int argc, char* argv[]) {
 }
 
 void initializeShaders() {
-    GLuint shaderProgram = createProgram("../src/shaders/default.vert.glsl", "../src/shaders/default.frag.glsl");
+    GLuint shaderProgram = createProgram("../../shaders/default.vert.glsl", "../../shaders/default.frag.glsl");
 
     // FLOW: Get the location of the attributes that enters in the vertex shader
     GLint position_attribute = glGetAttribLocation(shaderProgram, "position");

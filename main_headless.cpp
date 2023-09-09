@@ -75,7 +75,6 @@ void read_intrins(const std::string &path, float &fx, float &fy) {
 }  // namespace
 
 int main(int argc, char *argv[]) {
-    printf("Here!\n");
     using namespace volrend;
     cxxopts::Options cxxoptions(
         "volrend_headless",

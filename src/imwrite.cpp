@@ -17,8 +17,7 @@ bool write_png_file(const std::string &filename, uint8_t *ptr, int width,
         return false;
     }
 
-    png_structp png =
-        png_create_write_struct(PNG_LIBPNG_VER_STRING, NULL, NULL, NULL);
+    png_structp png = png_create_write_struct(PNG_LIBPNG_VER_STRING, NULL, NULL, NULL);
     if (!png) {
         fprintf(stderr, "PNG write failed\n");
         return false;
@@ -57,6 +56,7 @@ bool write_png_file(const std::string &filename, uint8_t *ptr, int width,
 
     std::vector<uint8_t *> row_ptrs(height);
     for (int i = 0; i < height; ++i) {
+        printf("%f", ptr + i * width * 4);
         row_ptrs[i] = ptr + i * width * 4;
     }
 
