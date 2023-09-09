@@ -3,17 +3,14 @@
 #include <cstdint>
 #include <vector>
 
-#ifdef VOLREND_PNG
 #include <png.h>
 #include <zlib.h>
-#endif
 
 namespace volrend {
 namespace internal {
 
 bool write_png_file(const std::string &filename, uint8_t *ptr, int width,
                     int height) {
-#ifdef VOLREND_PNG
     FILE *fp = fopen(filename.c_str(), "wb");
     if (!fp) {
         fprintf(stderr, "PNG destination could not be opened\n");
@@ -70,12 +67,6 @@ bool write_png_file(const std::string &filename, uint8_t *ptr, int width,
 
     png_destroy_write_struct(&png, &info);
     return true;
-#else
-    fprintf(stderr,
-            "WARNING: Not writing image because volrend was not built with "
-            "libpng\n");
-    return false;
-#endif
 }
 
 }  // namespace internal
