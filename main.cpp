@@ -1,3 +1,11 @@
+#include <iostream>
+#include <string>
+#include <fstream>
+#include <sstream>
+#include <cstdio>
+#include <cstdlib>
+#include <vector>
+
 #include <GL/glew.h>
 #include <GLFW/glfw3.h>
 #include <glm/gtc/type_ptr.hpp>
@@ -27,6 +35,26 @@
 #include "volrend/cuda/common.cuh"
 #endif
 
+#define STB_IMAGE_WRITE_IMPLEMENTATION
+#include <stb_image_write.h>
+
+// FLOW: Collision detection global variables
+// VARIABLE: Collision detection frame rate measurement
+static double col_frame_start = 0.0;
+
+struct BoundingBox {
+    double x;
+    double y;
+    double width;
+    double height;
+};
+static std::vector<BoundingBox> bounding_boxes;
+
+static bool CALLED = false;
+static std::string input_file_name = "./Release/nerf_bounding_boxes.in";
+static std::string image_file_name = "./Release/nerf.png";
+
+// FLOW: Start of volrend OpenGL code
 namespace volrend {
 
 namespace {
@@ -34,12 +62,14 @@ namespace {
 #define GET_RENDERER(window) \
     (*((VolumeRenderer*)glfwGetWindowUserPointer(window)))
 
+// FPS Counter
 void glfw_update_title(GLFWwindow* window) {
     // static fps counters
     // Source: http://antongerdelan.net/opengl/glcontext2.html
+
+    // FLOW: Plenoctree Viewer FPS
     static double stamp_prev = 0.0;
     static int frame_count = 0;
-
     const double stamp_curr = glfwGetTime();
     const double elapsed = stamp_curr - stamp_prev;
 
@@ -49,7 +79,7 @@ void glfw_update_title(GLFWwindow* window) {
         const double fps = (double)frame_count / elapsed;
 
         char tmp[128];
-        sprintf(tmp, "plenoctree viewer - FPS: %.2f", fps);
+        sprintf(tmp, "Plenoctree Viewer FPS: %.2f", fps);
         glfwSetWindowTitle(window, tmp);
         frame_count = 0;
     }
@@ -581,6 +611,15 @@ void glfw_mouse_button_callback(GLFWwindow* window, int button, int action,
     auto& cam = rend.camera;
     double x, y;
     glfwGetCursorPos(window, &x, &y);
+
+    // FLOW: NeRF Collision Detection
+    for (std::vector<BoundingBox>::iterator cur_box = bounding_boxes.begin(); cur_box != bounding_boxes.end(); ++cur_box) {
+        if (x >= cur_box->x - (cur_box->width / 2) && x <= cur_box->x + (cur_box->width / 2)
+            && y >= cur_box->y - (cur_box->height / 2) && y <= cur_box->y + (cur_box->height / 2)) {
+            std::cout << "COLLISION" << std::endl;
+        }
+    }
+    
     if (action == GLFW_PRESS) {
         const bool SHIFT = mods & GLFW_MOD_SHIFT;
         cam.begin_drag(x, y, SHIFT || button == GLFW_MOUSE_BUTTON_MIDDLE,
@@ -621,8 +660,7 @@ GLFWwindow* glfw_init(const int width, const int height) {
     glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE);
     glfwWindowHint(GLFW_OPENGL_FORWARD_COMPAT, GL_TRUE);
 
-    GLFWwindow* window =
-        glfwCreateWindow(width, height, "volrend viewer", NULL, NULL);
+    GLFWwindow* window = glfwCreateWindow(width, height, "volrend viewer", NULL, NULL);
 
     glClearDepth(1.0);
     glDepthFunc(GL_LESS);
@@ -670,6 +708,93 @@ void glfw_window_size_callback(GLFWwindow* window, int width, int height) {
 
 }  // namespace
 }  // namespace volrend
+
+// FLOW: Collision detection functions
+
+// FUNCTION: Initialize shaders
+void initializeShaders();
+
+// FUNCTION: Read a shader source from a file
+void readShaderFile(const char* fname, std::vector<char>& buffer);
+
+// FUNCTION: Load and compile shader
+GLuint loadShader(const char* fname, GLenum shaderType);
+
+// FUNCTION: Create program from shaders
+GLuint createProgram(const char* path_vert_shader, const char* path_frag_shader);
+
+// FUNCTION: Check if bounding box input file has been created and load in values
+void pollBoundingBoxScript() {
+    std::ifstream input_file(input_file_name);
+    // FLOW: Check if file exists
+    if (input_file.is_open()) {
+        bounding_boxes.clear();
+        std::string line;
+        while (std::getline(input_file, line)) {
+            // FLOW: Set loop variables
+            int counter = 0;
+            BoundingBox box;
+            std::stringstream ss(line);
+            std::string value;
+            while (ss >> value) { // FLOW: Extract word from the stream
+                double val = stof(value);
+                if (counter == 0) {
+                    box.x = val;
+                }
+                else if (counter == 1) {
+                    box.y = val;
+                }
+                else if (counter == 2) {
+                    box.width = val;
+                }
+                else if (counter == 3) {
+                    box.height = val;
+                }
+                counter++;
+            }
+            // FLOW: Add bounding box to vector of bounding boxes
+            bounding_boxes.push_back(box);
+        }
+        input_file.close();
+        // FLOW: Frame end
+        double fps = 1 / (glfwGetTime() - col_frame_start);
+        std::cout << "COL FPS: " << fps << std::endl;
+        // FLOW: Delete bounding box file and image file
+        remove(input_file_name.c_str());
+        remove(image_file_name.c_str());
+        // FLOW: Reset CALLED
+        CALLED = false;
+    }
+    else if (CALLED == false) {
+        // FLOW: Check if image file exists
+        std::filesystem::path f{ image_file_name };
+        if (std::filesystem::exists(f)) {
+            // FLOW: Call bounding box script
+            std::string commandline_call = "start /b python ../scripts/detect_octree.py -model ../models/yolov8/yolov8n-seg.pt -image ";
+            commandline_call.append(image_file_name);
+            commandline_call.append(" -output ");
+            commandline_call.append(input_file_name);
+            system(commandline_call.c_str());
+            CALLED = true;
+        }
+    }
+}
+
+// FUNCTION: Save image using stbi
+void saveImage(const char* filepath, GLFWwindow* w) {
+    int width, height;
+    glfwGetFramebufferSize(w, &width, &height);
+    GLsizei nrChannels = 3;
+    GLsizei stride = nrChannels * width;
+    stride += (stride % 4) ? (4 - stride % 4) : 0;
+    GLsizei bufferSize = stride * height;
+    std::vector<char> buffer(bufferSize);
+    glPixelStorei(GL_PACK_ALIGNMENT, 4);
+    glReadBuffer(GL_FRONT);
+    glReadPixels(0, 0, width, height, GL_RGB, GL_UNSIGNED_BYTE, buffer.data());
+    stbi_flip_vertically_on_write(true);
+    stbi_write_png(filepath, width, height, nrChannels, buffer.data(), stride);
+}
 
 int main(int argc, char* argv[]) {
     using namespace volrend;
@@ -774,15 +899,142 @@ int main(int argc, char* argv[]) {
         glfwSetScrollCallback(window, glfw_scroll_callback);
         glfwSetFramebufferSizeCallback(window, glfw_window_size_callback);
 
+        // FLOW: Create and bind VAO
+        GLuint vao;
+        glGenVertexArrays(1, &vao);
+        glBindVertexArray(vao);
+
+        // FLOW: Create VBO
+        GLuint vbo;
+        glGenBuffers(1, &vbo);
+
+        // FLOW: Initialize vertex positions
+        GLfloat vertices_position[48] = {
+           0.0, 0.0,
+           0.0, 0.25,
+           0.0, 0.5,
+
+           0.0, 0.0,
+           0.25, 0.0,
+           0.5, 0.0,
+
+           0.5, 0.0,
+           0.5, 0.25,
+           0.5, 0.5,
+
+           0.0, 0.5,
+           0.25, 0.5,
+           0.5, 0.5,
+
+           0.0, 0.0,
+           0.0, 0.25,
+           0.0, 0.5,
+
+           0.0, 0.0,
+           0.25, 0.0,
+           0.5, 0.0,
+
+           0.5, 0.0,
+           0.5, 0.25,
+           0.5, 0.5,
+
+           0.0, 0.5,
+           0.25, 0.5,
+           0.5, 0.5
+        };
+        glBindBuffer(GL_ARRAY_BUFFER, vbo);
+        glBufferData(GL_ARRAY_BUFFER, sizeof(vertices_position), vertices_position, GL_STATIC_DRAW);
+        
+        // FLOW: Init shaders
+        initializeShaders();
+
         while (!glfwWindowShouldClose(window)) {
-            glEnable(GL_DEPTH_TEST);
+            // glEnable(GL_DEPTH_TEST);
             glEnable(GL_PROGRAM_POINT_SIZE);
             glPointSize(4.f);
             glfw_update_title(window);
+            glClear(GL_COLOR_BUFFER_BIT);
 
+            // FLOW: Model inference
+            pollBoundingBoxScript();
+
+            // FLOW: Volume renderer of NeRF
             rend.render();
 
-            if (!nogui) draw_imgui(rend, tree);
+            // FLOW: Save image to file if one does not exist already
+            std::filesystem::path f{ image_file_name };
+            if (!std::filesystem::exists(f)) {
+                // FLOW: Frame start
+                col_frame_start = glfwGetTime();
+                saveImage(image_file_name.c_str(), window);
+            }
+
+            // FLOW: Draw bounding boxes 
+            if (bounding_boxes.size() > 0) {
+                glPolygonMode(GL_FRONT_AND_BACK, GL_LINE);
+                glBindVertexArray(vao);
+                glBindBuffer(GL_ARRAY_BUFFER, vbo);
+                int counter = 0;
+                // FLOW: Reset vertices_position array
+                for (int i = 0; i < 48; i++) {
+                    vertices_position[i] = -1.0;
+                }
+                for (std::vector<BoundingBox>::iterator cur_box = bounding_boxes.begin(); cur_box != bounding_boxes.end(); ++cur_box) {
+                    // FLOW: Run calculations on box coordinates
+                    double newX = ((2 * cur_box->x) / width) - 1;
+                    double newY = -(((2 * cur_box->y) / height) - 1);
+                    double newWidth = (2 * cur_box->width) / width;
+                    double newHeight = (2 * cur_box->height) / height;
+
+                    newX -= newWidth / 2;
+                    newY += newHeight / 2;
+
+                    // FLOW: Set vertex positions
+                    vertices_position[0 + (counter * 24)] = newX;
+                    vertices_position[1 + (counter * 24)] = newY;
+
+                    vertices_position[2 + (counter * 24)] = newX + (newWidth / 2);
+                    vertices_position[3 + (counter * 24)] = newY;
+
+                    vertices_position[4 + (counter * 24)] = newX + newWidth;
+                    vertices_position[5 + (counter * 24)] = newY;
+
+                    vertices_position[6 + (counter * 24)] = newX;
+                    vertices_position[7 + (counter * 24)] = newY;
+
+                    vertices_position[8 + (counter * 24)] = newX;
+                    vertices_position[9 + (counter * 24)] = newY - (newHeight / 2);
+
+                    vertices_position[10 + (counter * 24)] = newX;
+                    vertices_position[11 + (counter * 24)] = newY - newHeight;
+
+                    vertices_position[12 + (counter * 24)] = newX + newWidth;
+                    vertices_position[13 + (counter * 24)] = newY - (newHeight / 2);
+
+                    vertices_position[14 + (counter * 24)] = newX + newWidth;
+                    vertices_position[15 + (counter * 24)] = newY;
+
+                    vertices_position[16 + (counter * 24)] = newX + newWidth;
+                    vertices_position[17 + (counter * 24)] = newY - newHeight;
+
+                    vertices_position[18 + (counter * 24)] = newX;
+                    vertices_position[19 + (counter * 24)] = newY - newHeight;
+
+                    vertices_position[20 + (counter * 24)] = newX + (newWidth / 2);
+                    vertices_position[21 + (counter * 24)] = newY - newHeight;
+
+                    vertices_position[22 + (counter * 24)] = newX + newWidth;
+                    vertices_position[23 + (counter * 24)] = newY - newHeight;
+
+                    glBufferData(GL_ARRAY_BUFFER, sizeof(vertices_position), vertices_position, GL_STATIC_DRAW);
+
+                    counter++;
+                }
+                glDrawArrays(GL_TRIANGLES, 0, 24);
+                glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
+            }
+            
+            // if (!nogui) draw_imgui(rend, tree);
 
             glfwSwapBuffers(window);
             glFinish();
@@ -790,9 +1042,96 @@ int main(int argc, char* argv[]) {
         }
     }
 
+    // FLOW: Remove files on close
+    remove(input_file_name.c_str());
+    remove(image_file_name.c_str());
+
     ImGui_ImplOpenGL3_Shutdown();
     ImGui_ImplGlfw_Shutdown();
     ImGui::DestroyContext();
     glfwDestroyWindow(window);
     glfwTerminate();
+}
+
+void initializeShaders() {
+    GLuint shaderProgram = createProgram("../src/shaders/default.vert.glsl", "../src/shaders/default.frag.glsl");
+
+    // FLOW: Get the location of the attributes that enters in the vertex shader
+    GLint position_attribute = glGetAttribLocation(shaderProgram, "position");
+
+    // FLOW: Specify how the data for position can be accessed
+    glVertexAttribPointer(position_attribute, 2, GL_FLOAT, GL_FALSE, 0, 0);
+
+    // FLOW: Enable the attribute
+    glEnableVertexAttribArray(position_attribute);
+}
+
+void readShaderFile(const char* fname, std::vector<char>& buffer) {
+    std::ifstream in;
+    in.open(fname, std::ios::binary);
+
+    if (in.is_open()) {
+        // FLOW: Get the number of bytes stored in this file
+        in.seekg(0, std::ios::end);
+        size_t length = (size_t)in.tellg();
+
+        // FLOW: Go to start of the file
+        in.seekg(0, std::ios::beg);
+
+        // FLOW: Read the content of the file in a buffer
+        buffer.resize(length + 1);
+        in.read(&buffer[0], length);
+        in.close();
+        // FLOW: Add a valid C - string end
+        buffer[length] = '\0';
+    }
+    else {
+        std::cerr << "Unable to open " << fname << " I'm out!" << std::endl;
+        exit(-1);
+    }
+}
+
+GLuint loadShader(const char* fname, GLenum shaderType) {
+    // FLOW: Load a shader from an external file
+    std::vector<char> buffer;
+    readShaderFile(fname, buffer);
+    const char* src = &buffer[0];
+
+    // FLOW: Compile the shader
+    GLuint shader = glCreateShader(shaderType);
+    glShaderSource(shader, 1, &src, NULL);
+    glCompileShader(shader);
+    // FLOW: Check the result of the compilation
+    GLint test;
+    glGetShaderiv(shader, GL_COMPILE_STATUS, &test);
+    if (!test) {
+        std::cerr << "Shader compilation failed with this message:" << std::endl;
+        std::vector<char> compilation_log(512);
+        glGetShaderInfoLog(shader, compilation_log.size(), NULL, &compilation_log[0]);
+        std::cerr << &compilation_log[0] << std::endl;
+        glfwTerminate();
+        exit(-1);
+    }
+    return shader;
+}
+
+GLuint createProgram(const char* path_vert_shader, const char* path_frag_shader) {
+    // FLOW: Load and compile the vertex and fragment shaders
+    GLuint vertexShader = loadShader(path_vert_shader, GL_VERTEX_SHADER);
+    GLuint fragmentShader = loadShader(path_frag_shader, GL_FRAGMENT_SHADER);
+
+    // FLOW: Attach the above shader to a program
+    GLuint shaderProgram = glCreateProgram();
+    glAttachShader(shaderProgram, vertexShader);
+    glAttachShader(shaderProgram, fragmentShader);
+
+    // FLOW: Flag the shaders for deletion
+    glDeleteShader(vertexShader);
+    glDeleteShader(fragmentShader);
+
+    // FLOW: Link and use the program
+    glLinkProgram(shaderProgram);
+    glUseProgram(shaderProgram);
+
+    return shaderProgram;
 }

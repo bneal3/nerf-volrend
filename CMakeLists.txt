@@ -56,6 +56,8 @@ set( GLEW_DIR "${VENDOR_DIR}/glew" )
 set( GLM_DIR "${VENDOR_DIR}/glm" )
 set( CNPY_DIR "${VENDOR_DIR}/cnpy" )
 set( ZLIB_DIR "${VENDOR_DIR}/zlib" )
+set( STB_DIR "${VENDOR_DIR}/stb" )
+
 
 set( PROJ_LIB_NAME "volrend" )
 
@@ -114,6 +116,7 @@ set(IMGUI_HEADERS
 file(GLOB VOLREND_SOURCES ${SRC_DIR}/*.cpp)
 file(GLOB VOLREND_PUBLIC_HEADERS ${INCLUDE_DIR}/volrend/*.hpp)
 file(GLOB VOLREND_PRIVATE_HEADERS ${INCLUDE_DIR}/volrend/internal/*.hpp)
+file(GLOB VOLREND_SOURCES_SHADERS ${SRC_DIR}/shaders/*.glsl)
 
 if (_VOLREND_USE_CUDA)
     file(GLOB VOLREND_SOURCES_CUDA ${SRC_DIR}/cuda/*.cu)
@@ -125,7 +128,7 @@ else (_VOLREND_USE_CUDA)
     set(VOLREND_CUDA_HEADERS )
 endif (_VOLREND_USE_CUDA)
 
-set(VOLREND_SOURCES ${VOLREND_SOURCES} ${VOLREND_SOURCES_CUDA})
+set(VOLREND_SOURCES ${VOLREND_SOURCES} ${VOLREND_SOURCES_CUDA} ${VOLREND_SOURCES_SHADERS})
 set(VOLREND_HEADERS ${VOLREND_PUBLIC_HEADERS} ${VOLREND_PRIVATE_HEADERS}
     ${VOLREND_CUDA_HEADERS})
 
@@ -193,7 +196,9 @@ include_directories(
     ${GLEW_DIR}/include
     ${GLM_DIR}
     ${VENDOR_DIR}/misc
+    ${STB_DIR}
     )
+link_directories(${STB_DIR}) 
 if (_VOLREND_USE_CUDA)
     include_directories ( ${CMAKE_CUDA_TOOLKIT_INCLUDE_DIRECTORIES})
 endif()
