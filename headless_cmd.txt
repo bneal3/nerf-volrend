@@ -1,0 +1,3 @@
+ cd "C:\Users\thebe\Desktop\Academic\ES 100\Programming\Project Code\nerf-volrend\build\Release"
+
+./volrend_headless "C:\Users\thebe\Desktop\Academic\ES 100\Programming\Project Code\nerf-volrend\models\plenoctree\ficus.npz" -i "C:\Users\thebe\Desktop\Academic\ES 100\Programming\Project Code\nerf-volrend\models\nerf_synthetic_patch\ficus\intrinsics.txt" "C:\Users\thebe\Desktop\Academic\ES 100\Programming\Project Code\nerf-volrend\models\nerf_synthetic_patch\ficus\pose\r_35.txt" -o tree_rend/ficus

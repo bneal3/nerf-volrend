@@ -377,7 +377,13 @@ void Mesh::draw(const glm::mat4x4& V, glm::mat4x4 K, bool y_up) const {
     if (!y_up) {
         K[1][1] *= -1.0;
     }
-
+    /*for (int i = 0; i < V.length(); ++i) {
+        for (int j = 0; j < V[0].length(); ++j) {
+            printf("%f ", V[i][j]);
+        }
+        printf("\n");
+    }*/
+    
     transform_[3] = glm::vec4(translation, 1);
     glm::mat4x4 MV = V * transform_;
     glUniformMatrix4fv(u_MV, 1, GL_FALSE, glm::value_ptr(MV));

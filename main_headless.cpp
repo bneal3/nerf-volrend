@@ -5,6 +5,9 @@
 #include <fstream>
 #include <iomanip>
 
+#include <GL/glew.h>
+#include <GLFW/glfw3.h>
+
 #include "volrend/internal/auto_filesystem.hpp"
 
 #include "volrend/common.hpp"
@@ -15,6 +18,9 @@
 #include "volrend/cuda/common.cuh"
 #include "volrend/cuda/renderer_kernel.hpp"
 #include "volrend/internal/imwrite.hpp"
+
+#define STB_IMAGE_WRITE_IMPLEMENTATION
+#include <stb_image_write.h>
 
 namespace {
 std::string path_basename(const std::string &str) {
@@ -74,6 +80,8 @@ void read_intrins(const std::string &path, float &fx, float &fy) {
 }
 }  // namespace
 
+// FUNCTIONS: UnitNeRF Code
+
 int main(int argc, char *argv[]) {
     using namespace volrend;
     cxxopts::Options cxxoptions(
@@ -110,7 +118,7 @@ int main(int argc, char *argv[]) {
         cuda(SetDevice(device_id));
     }
 
-    // Load all transform matrices
+    // FLOW: Load all transform matrices
     std::vector<glm::mat4x3> trans;
     std::vector<std::string> basenames;
     for (auto path : args.unmatched()) {
@@ -206,6 +214,7 @@ int main(int argc, char *argv[]) {
 
     cudaEventRecord(start);
     for (size_t i = 0; i < trans.size(); ++i) {
+        // FLOW: SET CAMERA TRANSFORM EQUAL TO POSE MATRIX
         camera.transform = trans[i];
         camera._update(false);
 
@@ -217,8 +226,14 @@ int main(int argc, char *argv[]) {
             cuda(Memcpy2DFromArrayAsync(buf.data(), 4 * width, array, 0, 0,
                                         4 * width, height,
                                         cudaMemcpyDeviceToHost, stream));
+            // printf("\n");
+            // TODO: Set all white pixels to have 0 alpha
+            // for (int i = 0; i < height; ++i) {
+                // printf("%u ", *(buf.data() + i * width * 4));
+            // }
             std::string fpath = out_dir + "/" + basenames[i] + ".png";
-            internal::write_png_file(fpath, buf.data(), width, height);
+            // internal::write_png_file(fpath, buf.data(), width, height);
+            stbi_write_png(fpath.c_str(), width, height, 4, buf.data(), width*4);
         }
     }
     cudaEventRecord(stop);

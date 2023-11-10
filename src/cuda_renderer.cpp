@@ -99,7 +99,7 @@ struct VolumeRenderer::Impl {
         if (options.show_grid) {
             maybe_gen_wire(options.grid_max_depth);
         }
-
+        
         glDepthMask(GL_TRUE);
         glBindFramebuffer(GL_FRAMEBUFFER, fb[buf_index]);
         for (const Mesh& mesh : meshes) {
