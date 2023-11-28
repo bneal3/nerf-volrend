@@ -46,6 +46,7 @@ Camera::~Camera() {
 
 void Camera::_update(bool transform_from_vecs, bool copy_cuda) {
     if (transform_from_vecs) {
+        // FLOW: THIS USES VBACK AND CENTER TO CREATE W2C
         v_back = glm::normalize(v_back);
         v_right = glm::normalize(glm::cross(v_world_up, v_back));
         v_up = glm::cross(v_back, v_right);
@@ -86,6 +87,7 @@ void Camera::begin_drag(float x, float y, bool is_pan, bool about_origin) {
     drag_state_->is_panning = is_pan;
     drag_state_->about_origin = about_origin;
 }
+
 void Camera::drag_update(float x, float y) {
     if (!drag_state_->is_dragging) return;
     glm::vec2 drag_curr(x, y);
@@ -101,14 +103,13 @@ void Camera::drag_update(float x, float y) {
                      delta.y * drag_state_->drag_start_up;
         }
     } else {
+        // FLOW: THIS CREATES V_BACK WHICH CREATES W2C
         if (drag_state_->about_origin) delta *= -1.f;
         glm::mat4 m(1.0f), m_tmp(1.0f);
 
         m_tmp = glm::rotate(m_tmp, -delta.y, drag_state_->drag_start_right);
-        glm::vec3 v_back_tmp =
-            m_tmp * glm::vec4(drag_state_->drag_start_back, 1.f);
-        float dot = glm::dot(glm::cross(v_world_up, v_back_tmp),
-                             drag_state_->drag_start_right);
+        glm::vec3 v_back_tmp = m_tmp * glm::vec4(drag_state_->drag_start_back, 1.f);
+        float dot = glm::dot(glm::cross(v_world_up, v_back_tmp), drag_state_->drag_start_right);
         // Prevent flip over pole
         if (dot < 0.f) return;
 
@@ -120,10 +121,7 @@ void Camera::drag_update(float x, float y) {
         v_back = glm::normalize(v_back_new);
 
         if (drag_state_->about_origin) {
-            center =
-                glm::vec3(m * glm::vec4(drag_state_->drag_start_center - origin,
-                                        1.f)) +
-                origin;
+            center = glm::vec3(m * glm::vec4(drag_state_->drag_start_center - origin, 1.f)) + origin;
         }
         _update(true, false);
     }
